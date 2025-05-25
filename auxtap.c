@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Yuichi Nakamura (@yunkya2)
+ * Copyright (c) 2024,2025 Yuichi Nakamura (@yunkya2)
  *
  * The MIT License (MIT)
  *
@@ -25,105 +25,357 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <x68k/iocs.h>
 #include <x68k/dos.h>
+#include "auxtap.h"
 
-extern uint32_t oldvect;
-extern void auxintr_asm();
+//****************************************************************************
+// for debugging
+//****************************************************************************
 
-extern uint16_t keyptr;
-extern uint8_t keyseq[16];
+#ifdef DEBUG
+void DPRINTF(char *fmt, ...)
+{
+  char buf[256];
+  va_list ap;
 
-extern uint8_t keymap[4096];
+  va_start(ap, fmt);
+  vsiprintf(buf, fmt, ap);
+  va_end(ap);
+#ifndef DEBUG_UART
+  _iocs_b_print(buf);
+#else
+  char *p = buf;
+  while (*p) {
+    if (*p == '\n') {
+      while (_iocs_osns232c() == 0)
+        ;
+      _iocs_out232c('\r');
+    }
+    while (_iocs_osns232c() == 0)
+      ;
+    _iocs_out232c(*p++);
+  }
+#endif
+}
+#else
+#define DPRINTF(...)
+#endif
+
+//****************************************************************************
+// 常駐部
+//****************************************************************************
 
 __asm__(
-"start: .long _start\n"
-"oldvect: .long 0\n"
-".ascii \"AXT\\0\"\n"
+    ".long   d\n"        // データ領域へのポインタ
+    ".ascii  \"" AUXTAP_SIGNATURE "\"\n" // 常駐チェック用
 
+// SCC受信割り込み処理
+// 旧ベクタ実行した後にauxintr_next_asmを呼ぶ
+
+    ".global auxintr_asm\n"
 "auxintr_asm:\n"
-"movem.l %d0-%d7/%a0-%a6,%sp@-\n"
-"move.w %sr,%sp@-\n"
-"ori.w #0x0700,%sr\n"
-"bsr auxintr\n"
-"move.w %sp@+,%sr\n"
-"movem.l %sp@+,%d0-%d7/%a0-%a6\n"
-"rte\n"
+    "tst.b   0xcbc.w\n"                 // CPU type
+    "beq     auxintr_asm_68000\n"
+"auxintr_asm_68010:\n"                  // for 68010-
+    "move.w  %sp@(6),%sp@-\n"           // frame typeもスタックに積む
+"auxintr_asm_68000:\n"                  // for 68000
+    "pea.l   %pc@(auxintr_next_asm)\n"  // saved PC
+    "move.w  %sr,%sp@-\n"               // saved SR
+    "move.l  %pc@(org_auxintr),%sp@-\n"
+    "rts\n"                             // SCC受信処理後、auxintr_next_asmに飛ぶ
 
-"keyptr: .space 2\n"
-"keyseq: .space 16\n"
-".even\n"
+
+"auxintr_next_asm:\n"
+    "movem.l %d0-%d2/%a0-%a3,%sp@-\n"
+    "movea.l %pc@(paste_wptr),%a1\n"    // a1 = d.paste_wptr;
+    "move.l  0x400+(0x32*4),%a2\n"      // a2 = IOCS _INP232C
+    "move.l  0x400+(0x33*4),%a3\n"      // a3 = IOCS _ISNS232C
+    "bra     5f\n"
+
+"2:\n"
+    "jsr     %a2@\n"                    // d0 = _iocs_inp232c();
+    "tst.b   %d0\n"
+    "bne     3f\n"
+    "moveq.l #-0x80,%d0\n"              // d0 = (d0 == 0) ? 0x80 : d;
+
+"3:\n"
+    "move.b  %d0,%a1@+\n"               // *a1++ = d0;
+    "cmpa.l  %pc@(paste_buf_end),%a1\n" // if (a1 >= d.paste_buf_end) {
+    "bcs     4f\n"                      //     a1 = d.paste_buf;
+    "movea.l %pc@(paste_buf),%a1\n"     // }
+"4:\n"
+    "cmpa.l  %pc@(paste_rptr),%a1\n"    // if (a1 != d.paste_rptr) {
+    "beq     5f\n"                      //     d.paste_wptr = a1;
+    "move.l  %a1,paste_wptr\n"          // }
+
+"5:\n"
+    "jsr     %a3@\n"                    // _iocs_isns232c()
+    "tst.l   %d0\n"
+    "bne     2b\n"
+
+    "st.b    update\n"                  // d.update = true;
+    "move.b  %pc@(inintr),%d0\n"
+    "or.b    %pc@(ispaste),%d0\n"
+    "bne     9f\n"                      // 多重割り込み中 or ペーストモードならバッファに格納するのみ
+
+    "move.w  %sp@(7*4),%d0\n"           // 多重割り込み用に割り込み発生前の割り込みレベルを取得
+    "ori.w   #0x2000,%d0\n"             // supervisor mode
+    "move.l  %d0,%sp@-\n"               // if (!(d.inintr || d.ispaste)) {
+    "bsr     auxintr\n"                 //     auxintr(sr);
+    "addq.l  #4,%sp\n"                  // }
+
+"9:\n"
+    "movem.l %sp@+,%d0-%d2/%a0-%a3\n"
+    "rte\n"
+
+
+
+
+    ".global b_keyinp_asm\n"
+"b_keyinp_asm:\n"
+    "movem.l %d1-%d7/%a0-%a6,%sp@-\n"
+    "bsr     b_keyinp\n"
+    "movem.l %sp@+,%d1-%d7/%a0-%a6\n"
+    "rts\n"
+
+    ".global b_keysns_asm\n"
+"b_keysns_asm:\n"
+    "movem.l %d1-%d7/%a0-%a6,%sp@-\n"
+    "bsr     b_keysns\n"
+    "movem.l %sp@+,%d1-%d7/%a0-%a6\n"
+    "rts\n"
+
+    ".global key_init_asm\n"
+"key_init_asm:\n"
+    "move.l  %pc@(org_key_init),%sp@-\n"
+    "rts\n"
 );
 
+int b_keyinp(void)
+{
+    uint32_t res;
+
+    while (1) {
+        // キーバッファに入力があればそれを返す
+        __asm__ volatile (
+            "move.l %1,%%a0\n"
+            "jsr %%a0@\n"
+            "move.l %%d0,%0\n"
+            : "=d"(res) : "a"(d.org_b_keysns) : "%%d0", "%%a0", "memory"
+        );
+        if (res) {
+            __asm__ volatile (
+                "move.l %1,%%a0\n"
+                "jsr %%a0@\n"
+                "move.l %%d0,%0\n"
+                : "=d"(res) : "a"(d.org_b_keyinp) : "%%d0", "%%a0", "memory"
+            );
+            return res;
+        }
+
+        if (!d.ispaste) {
+            continue;
+        }
+
+        // paste bufferの内容を返す
+        uint16_t stat = save_irq();
+        if (d.paste_rptr != d.paste_wptr) {
+            res = *d.paste_rptr;
+            if (d.issjis1) {
+                d.issjis1 = false;
+            } else {
+                if ((res >= 0x81 && res <= 0x9f) || (res >= 0xe0)) {
+                    d.issjis1 = true;
+                }
+            }
+            d.paste_rptr++;
+            if (d.paste_rptr >= d.paste_buf_end) {
+                d.paste_rptr = d.paste_buf;
+            }
+            if (d.paste_rptr == d.paste_wptr && !d.issjis1) {
+                d.ispaste = false;
+            }
+            restore_irq(stat);
+            return res;
+        }
+        restore_irq(stat);
+    }
+}
+
+int b_keysns(void)
+{
+    uint32_t res;
+
+    __asm__ volatile (
+        "move.l %1,%%a0\n"
+        "jsr %%a0@\n"
+        "move.l %%d0,%0\n"
+        : "=d"(res) : "a"(d.org_b_keysns) : "%%d0", "%%a0", "memory"
+    );
+    if (res) {
+        return res;
+    }
+
+    if (!d.ispaste) {
+        return res;
+    }
+
+    uint16_t stat = save_irq();
+    if (d.paste_rptr != d.paste_wptr) {
+        res = 0x10000 | *d.paste_rptr;
+    } else {
+        res = 0;
+    }
+    restore_irq(stat);
+    return res;
+}
+
+
+// B_KEYSNS処理
+// org B_KEYSNS
+// 入力がなければpaste bufferから取得
+
+
+// AUXからの入力
+// 漢字ならSKEYSET_ascii
+// paste中でなければkeymatch -> SKEYSET
+// keybufが使用中ならpaste bufferに格納
+//   paste中にESCが来たらpasteを中断して通常入力に復帰
+
+// SKEYSET処理 (keyinp)
+// paste bufferが空でkeybufに空きがあればorg skeysetで格納 (key code)
+// keybufがfull またはpaste中ならasciiコードをpaste bufferに格納
+
+// SKYESET_ascii処理 (paste)
+// keybufに直接コードを格納 (bitmap,シフト状態は替えない)
+// 空きがなければpaste bufferに格納
+
+// IOCS _SKEYSET処理
 static void skeyset(uint16_t scancode)
 {
     __asm__ volatile (
-        "move.l %0,%%d1\n"
-        "moveq.l #0x05,%%d0\n"
-        "trap #15\n"
-        : : "d"(scancode) : "%%d0", "%%d1"
+        "move.l     %0,%%d1\n"
+        "move.l     0x400+(0x05*4),%%a0\n"  // IOCS _SKEYSET
+        "jsr        %%a0@\n"
+        : : "d"(scancode) : "%%d0", "%%d1", "%%a0", "memory"
     );
 }
 
-static void sendkey(uint8_t *keycode)
+// キーコードシーケンスを送出
+static int sendkey(uint8_t *k)
 {
-    uint8_t *k = keycode;
-    while (*k != 0) {
-        skeyset(*k++);
+    uint8_t c;
+    uint16_t stat = save_irq();
+
+    // 送出するシーケンスのキーバッファ消費量を調べる
+    int count = d.relptr;
+    for (uint8_t *p = k; (c = *p) != '\0'; p++) {
+        if (!(c & 0x80)) {
+            count++;
+        }
     }
-    while (--k >= keycode) {
-        skeyset(*k | 0x80);
+
+    // キーバッファに入りきらなければエラーにする
+    if (60 - *(uint16_t *)0x0812 < count) { // TBD
+        restore_irq(stat);
+        return -1;
     }
+
+    // 前回送出したキーコードで押されたままになっているキーを離す
+    while (d.relptr > 0) {
+        skeyset(d.relseq[--d.relptr]);
+    }
+
+    while ((c = *k++) != 0) {
+        if (c & 0x80) {         // シフト系キーの処理
+            skeyset(c & 0x7f);      // キーを押す
+            d.relseq[d.relptr++] = c;   // 後で離すキーコードを保存
+        } else {
+            skeyset(c);             // キーを押す
+            skeyset(c | 0x80);      // キーを離す
+        }
+    }
+
+    restore_irq(stat);
+    return 0;
 }
 
-static uint8_t *keymatch(uint8_t *key, int part, int *len)
+// 押されているシフト系キーがあれば離す
+static void relkey(void)
 {
-    uint8_t *m = keymap;
+    uint16_t stat = save_irq();
+    while (d.relptr > 0) {
+        skeyset(d.relseq[--d.relptr]);
+    }
+    restore_irq(stat);
+}
+
+// 入力文字列からキーコード列を探す
+// IN:
+//  key:  入力文字列
+//  klen: 入力長
+//  part: 1なら追加入力を考慮する, 0なら考慮しない
+//  len:  !=NULL ならマッチした長さを返す
+// OUT:
+//  NULL:   マッチしない
+//  -1:     部分マッチした
+// その他:  マッチしたキーコード列へのポインタ
+
+static uint8_t *keymatch(uint8_t *key, int klen, int part, int *len)
+{
+    uint8_t *m = d.keymap;
     int mlen = 0;
     uint8_t *res = NULL;
 
-//    printf("--\n");
+    // keymapのエントリを順に調べる
     while (*m != '\0') {
         uint8_t *k = key;
-//     printf("%02x\n", *m);
+        int kl = klen;
 
-        while (*m == *k) {
-            if (*m == '\0') {
-                if (mlen < k - key) {
-                    // マッチした長さが長い方を採用
-                    mlen = k - key;        // マッチした長さ
-                    res = m + 1;           // 出力するキーコード列
-                    break;
-                }
+        // エントリの文字列と入力文字列を比較する
+        while (kl > 0) {
+            if (*m != *k) {
+                break;
             }
             m++;
             k++;
+            kl--;
         }
 
-        if (*m != *k) {
-            // 途中までマッチする場合、もっと長いシーケンスが来る可能性がある
-            if (*k == '\0' && part) {
-                return (uint8_t *)-1;
+        if (part) {     // 入力が更に続く可能性がある
+            if (kl == 0) {      // ここまでの入力とはマッチした
+                if (*m == '\0') {
+                    if (mlen < klen) {
+                        // マッチした長さが長い方を採用
+                        mlen = klen;    // マッチした長さ
+                        res = m + 1;    // 出力するキーコード列
+                    }
+                } else {
+                    // 今後の入力でより長くマッチする可能性がある
+                    return (uint8_t *)-1;
+                }
             }
-
-            // 完全マッチしない場合は、最も長い部分マッチを探す
-            if (*m == '\0' && !part) {
-                if (mlen < k - key) {
+        } else {        // これ以上の入力は考慮しなくてよい
+            if (*m == '\0') {
+                if (mlen < klen - kl) {
                     // マッチした長さが長い方を採用
-                    mlen = k - key;        // マッチした長さ
-                    res = m + 1;           // 出力するキーコード列
+                    mlen = klen - kl;   // マッチした長さ
+                    res = m + 1;        // 出力するキーコード列
                 }
             }
         }
 
-        // 次の入力列へ進む
+        // 次のエントリに進む
         while (*m++ != '\0') {
-            ;
+            ;   // 入力文字列をスキップ
         }
         while (*m++ != '\0') {
-            ;
+            ;   // 出力キーコード列をスキップ
         }
     }
 
@@ -133,244 +385,113 @@ static uint8_t *keymatch(uint8_t *key, int part, int *len)
     return res;
 }
 
-void auxintr(void)
+// SCC受信割り込み処理
+void auxintr(uint32_t stat)
 {
-    uint8_t data = *(volatile uint16_t *)0xe98006 & 0xff; // SCC data port
+    d.inintr = true;
+    do {
+        d.update = false;
 
-#ifdef DEBUG
-    _iocs_b_putc('{');
-    _iocs_b_putc("0123456789abcdef"[(data >> 4) & 0xf]);
-    _iocs_b_putc("0123456789abcdef"[(data >> 0) & 0xf]);
-    _iocs_b_putc('}');
-#endif
+        uint8_t keyseq[8];
+        int keyseqlen = 0;
 
-    keyseq[keyptr++] = data;
-    keyseq[keyptr] = 0;
+        // シリアル入力をキーコード変換用バッファに移す
+        uint8_t *p = d.paste_rptr;
+        while (p != d.paste_wptr) {
+            uint8_t c = *p++;
+            if (p >= d.paste_buf_end) {
+                p = d.paste_buf;
+            }
 
-    uint8_t *keycode = keymatch(keyseq, 1, NULL);
-
-    if (keycode == NULL) {
-        // マッチしない
-        while (keyptr > 0) {
-            int len;
-            // マッチしない場合は最長部分マッチを探す
-            keycode = keymatch(keyseq, 0, &len);
-            if (keycode == NULL) {
-                // 部分マッチもしない
-                for (int i = 0; i < keyptr; i++) {
-                    _iocs_b_putc('{');
-                    _iocs_b_putc("0123456789abcdef"[(data >> 4) & 0xf]);
-                    _iocs_b_putc("0123456789abcdef"[(data >> 0) & 0xf]);
-                    _iocs_b_putc('}');
-                }
-                keyptr = 0;
-            } else {
-                sendkey(keycode);
-                uint8_t *k = &keyseq[len];
-                keyptr = 0;
-                while (*k != '\0') {
-                    *k++ = keyseq[keyptr++];
-                }
-                keyptr = k - keyseq;
+            keyseq[keyseqlen++] = c;
+            if (c > 0x80 || keyseqlen > sizeof(keyseq)) {
+                relkey();
+                d.ispaste = true;   // ペーストモードに移行
+                d.inintr = false;
+                return;
             }
         }
-    } else if (keycode == (uint8_t *)-1) {
-        // 部分マッチ
-    } else {
-        // 完全マッチ
-        sendkey(keycode);
-        keyptr = 0;
-    }
-
-//    __asm__ volatile ("tst.b 0xe9a001\n");
-//    __asm__ volatile ("tst.b 0xe9a001\n");
-    *(volatile uint16_t *)0xe98004 = 0x0038; // SCC command port
-}
-
-
-__asm__(
-    "keymap: .space 4096\n"
-    ".even\n"   
-);
-
-///////////////////////////////////////////////////////////////////// ここまでが常駐部
-
-void help(void);
-
-int main(int argc, char **argv)
-{
-
-    FILE *fp;
-
-    if ((fp = fopen("auxtap.cnf", "r")) == NULL) {
-        _dos_print("auxtap.cnfが見つかりません\r\n");
-        exit(1);
-    }
-
-
-    char line[256];
-    uint8_t *mp = keymap;
-
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        char *p = line;
-        uint8_t *m = mp;
-        uint8_t c;
-
-        while (isspace(*p)) {
-            p++;
-        }
-        if (*p == '#') {
-            continue;
-        }
-
-        c = 0;
-        while (!isspace(*p) && *p != '\0') {
-            if (*p == '\\') {
-                p++;
-                if (*p == 'x') {
-                    p++;
-                    c = (uint8_t)strtol(p, &p, 16);
-                } else {
-                    c = (uint8_t)strtol(p, &p, 0);
-                }
-                if (c == 0) {
-                    break;
-                }
-                *m++ = c;
-            } else {
-                c = *p++;
-                *m++ = c;
-            }
-        }
-        *m++ = '\0';
-        if (c == 0) {
-            continue;
-        }
-
-        do {
-            c = (uint8_t)strtol(p, &p, 16);
-            if (c == 0) {
-                break;
-            }
-            *m++ = c;
-            while (isspace(*p)) {
-                p++;
-            }
-        } while (*p++ == ',');
-        *m++ = '\0';
-        if (c == 0) {
-            continue;
-        }
-
-        mp = m;
-    }
-    fclose(fp);
-    *mp = '\0';
-
-    #if 0
-    int i = 0;
-    for (uint8_t *p = keymap; p != mp; p++, i++) {
-        printf("%02x ", *p);
-        if ((i & 0x0f) == 0x0f) {
-            printf("\n");
-        }
-    }
-    printf("\n%d\n", mp - keymap);
-    #endif
-
-#if 0
-    int l;
-    printf("%p\n", keymatch((uint8_t *)"\x1b[D", 1, NULL));
-    printf("%02x\n", *keymatch((uint8_t *)"\x1b[D", 1, NULL));
-    printf("%p\n", keymatch((uint8_t *)"\x1b[", 1, NULL));
-    printf("%p\n", keymatch((uint8_t *)"\x1b(", 1, NULL));
-    printf("\n");
-    printf("%p\n", keymatch((uint8_t *)"\x41", 1, NULL));
-
-    printf("\n");
-    printf("%p\n", keymatch((uint8_t *)"\x1b[", 0, NULL));
-    printf("%02x\n", *keymatch((uint8_t *)"\x1b[", 0, &l));
-    printf("%d\n\n", l);
-
-    printf("%p\n", keymatch((uint8_t *)"\x1b", 0, NULL));
-    printf("%02x\n", *keymatch((uint8_t *)"\x1b", 0, &l));
-    printf("%d\n", l);
-#endif
-
-//    exit(0);
-
-    _dos_print("AUX tap driver for X680x0 version " GIT_REPO_VERSION "\r\n");
-
-    int baudrate = 0;
-    int bdset = -1;
-    int release = 0;
-
-    for (int i = 1; i < argc; i++) {
-        if (argv[i][0] == '/' || argv[i][0] =='-') {
-            switch (argv[i][1]) {
-            case 's':
-                baudrate = atoi(&argv[i][2]);
-                break;
-            case 'r':
-                release = 1;
-                break;
-            default:
-                help();
-                break;
-            }
-        }
-    }
-
-    if (baudrate > 0) {
-        bdset = 9;
-        static const int bauddef[] = { 75, 150, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400 };
-        for (int i = 0; i < sizeof(bauddef) / sizeof(bauddef[0]); i++) {
-            if (baudrate == bauddef[i]) {
-            bdset = i;
+        if (d.ispaste) {
             break;
+        }
+
+        // 入力文字コードが ESC だったらペーストバッファをクリアしてペーストモード終了 (TBD)
+
+        restore_irq(stat);
+
+        #ifdef DEBUG
+        DPRINTF("{%d:", keyseqlen);
+        for (int i = 0 ; i < keyseqlen; i++) DPRINTF("%02x ", keyseq[i]);
+        DPRINTF("->");
+        #endif
+
+        // ここまでの入力文字列でマッチするものを探す
+        uint8_t *keycode = keymatch(keyseq, keyseqlen, 1, NULL);
+
+        #ifdef DEBUG
+        if (keycode == NULL) {
+            DPRINTF(" (no match)");
+        } else if (keycode == (uint8_t *)-1) {
+            DPRINTF(" (partial)");
+        } else {
+            for (uint8_t *k = keycode; *k; k++) DPRINTF(" %02x", *k);
+        }
+        #endif
+
+        if (keycode == NULL) {
+            // マッチしない
+            uint8_t *key = keyseq;
+            int kl = keyseqlen;
+            while (kl > 0) {
+                int len;
+                // マッチしない場合は最長部分マッチを探す
+                keycode = keymatch(key, kl, 0, &len);
+                if (keycode == NULL) {
+                    break;  // マッチするものがないので入力を無視
+                } else {    // 先頭からマッチする部分のみを出力
+                    #ifdef DEBUG
+                    for (uint8_t *k = keycode; *k; k++) DPRINTF(" %02x", *k);
+                    #endif
+                    if (sendkey(keycode) < 0) {
+                        // キーバッファに入りきらないのでペーストモードへ
+                        stat = save_irq();
+                        relkey();
+                        d.ispaste = true;   // ペーストモードに移行
+                        d.inintr = false;
+                        return;
+                    }
+                    // 出力した文字列の続きを調べる
+                    key += len;
+                    kl -= len;
+                }
+            }
+        } else if (keycode == (uint8_t *)-1) {
+            // 部分マッチ (後続の入力を待つ)
+            keyseqlen = 0;
+        } else {
+            // 完全マッチ
+            if (sendkey(keycode) < 0) {
+                // キーバッファに入りきらないのでペーストモードへ
+                stat = save_irq();
+                relkey();
+                d.ispaste = true;   // ペーストモードに移行
+                d.inintr = false;
+                return;
             }
         }
-    }
-    if (bdset > 0) {
-        // stop 1 / nonparity / 8bit / nonxoff
-        _iocs_set232c(0x4c00 | bdset);
-    }
 
-    _iocs_b_super(0);
-    uint32_t oldvect = *(volatile uint32_t *)(0x5c * 4);
+        #ifdef DEBUG
+        DPRINTF("}\r\n");
+        #endif
 
-    if (release) {
-        if (strcmp((char *)(oldvect - 4), "AXT") != 0) {
-            _dos_print("auxtapが常駐していません\r\n");
-            exit(1);
+        stat = save_irq();
+        // キーバッファに入れた分だけ入力バッファのポインタを進める
+        while (keyseqlen-- > 0) {
+            d.paste_rptr++;
+            if (d.paste_rptr >= d.paste_buf_end) {
+                d.paste_rptr = d.paste_buf;
+            }
         }
-
-        *(volatile uint32_t *)(0x5c * 4) = *(volatile uint32_t *)(oldvect - 8);
-        _dos_mfree((void *)(*(volatile uint32_t *)(oldvect - 12) - 0xf0));
-        _dos_print("auxtapの常駐を解除しました\r\n");
-        exit(0);
-    }
-
-    if (strcmp((char *)(oldvect - 4), "AXT") == 0) {
-        _dos_print("auxtapが既に常駐しています\r\n");
-        exit(1);
-    }
-
-    *(volatile uint32_t *)(0x5c * 4) = (int)auxintr_asm;
-
-    extern void _start();
-    int size = (int)main - (int)_start;
-#ifdef DEBUG
-    int size = 0xffffffff;
-#endif
-    _dos_allclose();
-    _dos_print("auxtapが常駐しました\r\n");
-    _dos_keeppr(size, 0);
-}
-
-void help(void)
-{
-    _dos_print("AUX1からの入力をキー入力として扱います\r\n");
-    _dos_print("Usage: auxtap.x [-r][-s<baud>]\r\n");
-    exit(1);
+    } while (d.update);
+    d.inintr = false;
 }
