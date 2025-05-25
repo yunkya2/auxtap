@@ -1,0 +1,181 @@
+# auxtap.cnf
+#
+#           10:TAB    20:D      30:M      40:/      50:,      60:‘SŠp   70:SHIFT
+# 01:ESC    11:Q      21:F      31:,<     41:*      51:.      61:BREAK  71:CTRL
+# 02:1!     12:W      22:G      32:.>     42:-      52:‹L†   62:COPY   72:OPT.1
+# 03:2"     13:E      23:H      33:/?     43:7      53:“o˜^   63:F1     73:OPT.2
+# 04:3#     14:R      24:J      34:_      44:8      54:HELP   64:F2     74:NUM
+# 05:4$     15:T      25:K      35:SPACE  45:9      55:XF1    65:F3
+# 06:5%     16:Y      26:L      36:HOME   46:+      56:XF2    66:F4
+# 07:6&     17:U      27:;+     37:DEL    47:4      57:XF3    67:F5
+# 08:7'     18:I      28::*     38:R_UP   48:5      58:XF4    68:F6
+# 09:8(     19:O      29:]}     39:R_DOWN 49:6      59:XF5    69:F7
+# 0a:9)     1a:P      2a:Z      3a:UNDO   4a:=      5a:‚©‚È   6a:F8
+# 0b:0      1b:@`     2b:X      3b:©     4b:1      5b:Û-ÏŽš  6b:F9
+# 0c:-=     1c:[{     2c:C      3c:ª     4c:2      5c:º-ÄÞ   6c:F10
+# 0d:^~     1d:CR     2d:V      3d:¨     4d:3      5d:CAPS
+# 0e:\|     1e:A      2e:B      3e:«     4e:ENTER  5e:INS
+# 0f:BS     1f:S      2f:N      3f:CLR    4f:0      5f:‚Ð‚ç‚ª‚È
+
+# input     keycode
+\x1b[D      3b          # ©
+\x1b[A      3a          # ª
+\x1b[C      3c          # ¨
+\x1b[B      3e          # «
+
+\x1b[H      36          # HOME
+\x1b[3~     37          # DEL
+\x1b[6~     38          # R_UP   (PAGE DOWNN)
+\x1b[5~     39          # R_DOWN (PAGE UP)
+\x1b[F      3f          # CLR    (END)
+
+\x1b[11~    63          # F1
+\x1b[12~    64          # F2
+\x1b[13~    65          # F3
+\x1b[14~    66          # F4
+\x1b[15~    67          # F5
+\x1b[17~    68          # F6
+\x1b[18~    69          # F7
+\x1b[19~    6a          # F8
+\x1b[20~    6b          # F9
+\x1b[21~    6c          # F10
+
+\x1b[2~     5e          # INS
+\x1b[Z      01          # SHIFT+TAB -> ESC
+
+\x01        71,1e       # CTRL+A
+\x02        71,2e       # CTRL+B
+\x03        71,2c       # CTRL+C
+\x04        71,20       # CTRL+D
+\x05        71,13       # CTRL+E
+\x06        71,21       # CTRL+F
+\x07        71,22       # CTRL+G
+\x08        0f          # BS
+\x09        10          # TAB
+\x0a        71,24       # CTRL+J
+\x0b        71,25       # CTRL+K
+\x0c        71,26       # CTRL+L
+\x0d        1d          # CR
+\x0e        71,2f       # CTRL+N
+\x0f        71,19       # CTRL+O
+
+\x10        71,1a       # CTRL+P
+\x11        71,11       # CTRL+Q
+\x12        71,14       # CTRL+R
+\x13        71,1f       # CTRL+S
+\x14        71,15       # CTRL+T
+\x15        71,17       # CTRL+U
+\x16        71,2d       # CTRL+V
+\x17        71,12       # CTRL+W
+\x18        71,2b       # CTRL+X
+\x19        71,16       # CTRL+Y
+\x1a        71,2a       # CTRL+Z
+\x1b        01          # ESC
+\x1c        71,0e       # CTRL+\
+\x1d        71,29       # CTRL+]
+\x1e        71,0d       # CTRL+^
+\x1f        71,34       # CTRL+_
+
+\x20        35          # SPACE
+\x21        70,02       # SHIFT+1 (!)
+\x22        70,03       # SHIFT+2 (")
+\x23        70,04       # SHIFT+3 (#)
+\x24        70,05       # SHIFT+4 ($)
+\x25        70,06       # SHIFT+5 (%)
+\x26        70,07       # SHIFT+6 (&)
+\x27        70,08       # SHIFT+7 (')
+\x28        70,09       # SHIFT+8 (()
+\x29        70,0a       # SHIFT+9 ())
+\x2a        70,28       # SHIFT+: (*)
+\x2b        70,27       # SHIFT+; (+)
+\x2c        31          # ,
+\x2d        0c          # -
+\x2e        32          # .
+\x2f        33          # /
+
+\x30        0b          # 0
+\x31        02          # 1
+\x32        03          # 2
+\x33        04          # 3
+\x34        05          # 4
+\x35        06          # 5
+\x36        07          # 6
+\x37        08          # 7
+\x38        09          # 8
+\x39        0a          # 9
+\x3a        28          # :
+\x3b        27          # ;
+\x3c        70,31       # SHIFT+, (<)
+\x3d        70,0c       # SHIFT+- (=)
+\x3e        70,32       # SHIFT+. (>)
+\x3f        70,33       # SHIFT+/ (?)
+
+\x40        1b          # @
+\x41        70,1e       # SHIFT+A
+\x42        70,2e       # SHIFT+B
+\x43        70,2c       # SHIFT+C
+\x44        70,20       # SHIFT+D
+\x45        70,13       # SHIFT+E
+\x46        70,21       # SHIFT+F
+\x47        70,22       # SHIFT+G
+\x48        70,23       # SHIFT+H
+\x49        70,18       # SHIFT+I
+\x4a        70,24       # SHIFT+J
+\x4b        70,25       # SHIFT+K
+\x4c        70,26       # SHIFT+L
+\x4d        70,30       # SHIFT+M
+\x4e        70,2f       # SHIFT+N
+\x4f        70,19       # SHIFT+O
+
+\x50        70,1a       # SHIFT+P
+\x51        70,11       # SHIFT+Q
+\x52        70,14       # SHIFT+R
+\x53        70,1f       # SHIFT+S
+\x54        70,15       # SHIFT+T
+\x55        70,17       # SHIFT+U
+\x56        70,2d       # SHIFT+V
+\x57        70,12       # SHIFT+W
+\x58        70,2b       # SHIFT+X
+\x59        70,16       # SHIFT+Y
+\x5a        70,2a       # SHIFT+Z
+\x5b        1c          # [
+\x5c        0e          # \
+\x5d        29          # ]
+\x5e        0d          # ^
+\x5f        70,34       # SHIFT+_
+
+\x60        70,1b       # SHIFT+@ (`)
+\x61        1e          # A
+\x62        2e          # B
+\x63        2c          # C
+\x64        20          # D
+\x65        13          # E
+\x66        21          # F
+\x67        22          # G
+\x68        23          # H
+\x69        18          # I
+\x6a        24          # J
+\x6b        25          # K
+\x6c        26          # L
+\x6d        30          # M
+\x6e        2f          # N
+\x6f        19          # O
+
+\x70        1a          # P
+\x71        11          # Q
+\x72        14          # R
+\x73        1f          # S
+\x74        15          # T
+\x75        17          # U
+\x76        2d          # V
+\x77        12          # W
+\x78        2b          # X
+\x79        16          # Y
+\x7a        2a          # Z
+\x7b        70,1c       # SHIFT+[ ({)
+\x7c        70,0e       # SHIFT+\ (|)
+\x7d        70,29       # SHIFT+] (})
+\x7e        70,0d       # SHIFT+^ (~)
+\x7f        37          # DEL
+
+# EOF
