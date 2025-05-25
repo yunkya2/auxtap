@@ -29,7 +29,12 @@
 
 //#define DEBUG
 
-#define AUXTAP_SIGNATURE    "AXT3"  // 常駐部チェック用
+#define AUXTAP_SIGNATURE    "AXT2"  // 常駐部チェック用
+
+// 特殊キーコード定義
+#define KEYCODE_CON     0xff        // コンソールのAUX出力を有効にする
+#define KEYCODE_COFF    0xfe        // コンソールのAUX出力を無効にする
+#define KEYCODE_CSW     0xfd        // コンソールのAUX出力の有効・無効を切り替える
 
 #include "auxtapdata.h"
 
@@ -38,6 +43,10 @@ extern void auxintr_asm();
 extern void b_keyinp_asm();
 extern void b_keysns_asm();
 extern void key_init_asm();
+extern void b_putc_asm();
+extern void b_print_asm();
+
+void conout_switch(int);
 
 // 割り込み禁止状態にする
 static inline uint16_t save_irq(void)

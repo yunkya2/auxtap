@@ -45,9 +45,9 @@
 \x1b[23~    71+3c       # F11 -> CTRL+Å™
 \x1b[24~    71+3e       # F12 -> CTRL+Å´
 
-#\x1b[25~    xx          # SHIFT+F3
-#\x1b[26~    xx          # SHIFT+F4
-#\x1b[28~    xx          # SHIFT+F5
+\x1b[25~    &con        # SHIFT+F3
+\x1b[26~    &coff       # SHIFT+F4
+\x1b[28~    &csw        # SHIFT+F5
 #\x1b[29~    xx          # SHIFT+F6
 #\x1b[31~    xx          # SHIFT+F7
 #\x1b[32~    xx          # SHIFT+F8

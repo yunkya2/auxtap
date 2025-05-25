@@ -27,7 +27,6 @@
 #ifndef _AUXTAPDATA_H_
 #define _AUXTAPDATA_H_
 
-#define KEYBUFSIZE          16          // 入力バッファサイズ
 #define RELBUFSIZE          16          // シフトキーバッファサイズ
 #define KEYMAPSIZE          4096        // 入力変換テーブルのサイズ
 
@@ -40,19 +39,25 @@ struct data {
     uint32_t org_start;             // 常駐部先頭アドレス
     uint32_t org_auxintr;           // SCC受信割り込み 変更前ベクタ
 
-    uint32_t org_b_keyinp;
-    uint32_t org_b_keysns;
-    uint32_t org_key_init;
+    uint32_t org_b_keyinp;          // IOCS _B_KEYINP 変更前ベクタ
+    uint32_t org_b_keysns;          // IOCS _B_KEYSNS 変更前ベクタ
+    uint32_t org_key_init;          // IOCS _KEY_INIT 変更前ベクタ
+    uint32_t org_b_putc;            // IOCS _B_PUTC   変更前ベクタ
+    uint32_t org_b_print;           // IOCS _B_PRINT  変更前ベクタ
 
     uint8_t *paste_buf;             // paste bufferアドレス
     uint8_t *paste_buf_end;         // paste buffer終了アドレス
     uint8_t *paste_wptr;            // paste buffer書き込みポインタ
     uint8_t *paste_rptr;            // paste buffer読み出しポインタ
 
+    int16_t cursorx;                // _B_PUTC実行後のカーソルX座標
+    int16_t cursory;                // _B_PUTC実行後のカーソルY座標
+
     uint8_t inintr;                 // 割り込みハンドラ実行中フラグ
     uint8_t ispaste;                // pasteモードフラグ
     uint8_t update;                 // 入力文字列更新フラグ
     uint8_t issjis1;                // SJIS1バイト目フラグ
+    uint8_t isconout;               // コンソールAUX出力フラグ
 
     uint16_t relptr;                // シフトキーバッファ使用サイズ
     uint8_t relseq[RELBUFSIZE];     // シフトキーバッファ
@@ -71,9 +76,13 @@ __asm__(
     ".global    org_b_keyinp\n"
     ".global    org_b_keysns\n"
     ".global    org_key_init\n"
+    ".global    org_b_putc\n"
+    ".global    org_b_print\n"
 "org_b_keyinp:  .space 4\n"
 "org_b_keysns:  .space 4\n"
 "org_key_init:  .space 4\n"
+"org_b_putc:    .space 4\n"
+"org_b_print:   .space 4\n"
 
     ".global    paste_buf\n"
     ".global    paste_buf_end\n"
@@ -84,13 +93,21 @@ __asm__(
 "paste_wptr:    .space 4\n"
 "paste_rptr:    .space 4\n"
 
+    ".global    cursorx\n"
+    ".global    cursory\n"
+"cursorx:       .space 2\n"
+"cursory:       .space 2\n"
+
     ".global    inintr\n"
     ".global    ispaste\n"
     ".global    update\n"
+    ".global    issjis1\n"
+    ".global    isconout\n"
 "inintr:        .space 1\n"
 "ispaste:       .space 1\n"
 "update:        .space 1\n"
 "issjis1:       .space 1\n"
+"isconout:      .space 1\n"
     ".even\n"
 
 "relptr:        .space 2\n"
@@ -100,7 +117,7 @@ __asm__(
 "keymap:        .space " STRING2(KEYMAPSIZE) "\n"
     ".even\n"
 #ifdef DEBUG
-    ".space 65536\n"  // for pasete buffer
+    ".space     65536\n"  // for paste buffer
 #endif
 );
 #endif

@@ -133,28 +133,134 @@ __asm__(
     "movem.l %sp@+,%d0-%d2/%a0-%a3\n"
     "rte\n"
 
-
-
+// キー入力関連IOCS処理
 
     ".global b_keyinp_asm\n"
 "b_keyinp_asm:\n"
-    "movem.l %d1-%d7/%a0-%a6,%sp@-\n"
+    "movem.l %d1-%d2/%a0-%a2,%sp@-\n"
     "bsr     b_keyinp\n"
-    "movem.l %sp@+,%d1-%d7/%a0-%a6\n"
+    "movem.l %sp@+,%d1-%d2/%a0-%a2\n"
     "rts\n"
 
     ".global b_keysns_asm\n"
 "b_keysns_asm:\n"
-    "movem.l %d1-%d7/%a0-%a6,%sp@-\n"
+    "movem.l %d1-%d2/%a0-%a2,%sp@-\n"
     "bsr     b_keysns\n"
-    "movem.l %sp@+,%d1-%d7/%a0-%a6\n"
+    "movem.l %sp@+,%d1-%d2/%a0-%a2\n"
     "rts\n"
 
     ".global key_init_asm\n"
 "key_init_asm:\n"
+    "sf      ispaste\n"
+    "sf      issjis1\n"
+    "move.l  paste_wptr,paste_rptr\n"
     "move.l  %pc@(org_key_init),%sp@-\n"
     "rts\n"
+
+// 文字表示関連IOCS処理
+
+    ".global b_putc_asm\n"
+"b_putc_asm:\n"
+    "movem.l %d1-%d2/%a0-%a2,%sp@-\n"
+    "ext.l   %d1\n"
+    "move.l  %d1,%sp@-\n"
+    "bsr     b_putc\n"
+    "addq.l  #4,%sp\n"
+    "movem.l %sp@+,%d1-%d2/%a0-%a2\n"
+    "rts\n"
+
+    ".global b_print_asm\n"
+"b_print_asm:\n"
+    "move.l  %d1,%sp@-\n"
+"1:\n"
+    "clr.w   %d1\n"
+    "move.b  %a1@+,%d1\n"
+    "beq     2f\n"
+    "bsr     b_putc_asm\n"
+    "bra 1b\n"
+"2:\n"
+    "move.l  0x974,%d0\n"
+    "movem.l %sp@+,%d1\n"
+    "rts\n"
 );
+
+//----------------------------------------------------------------------------
+// 文字出力関連処理
+//----------------------------------------------------------------------------
+
+static void out232c(int c)
+{
+    __asm__ volatile (
+        // RS-232Cに出力が可能になるまで待つ
+    "1:\n"
+        "move.l  0x400+(0x34*4),%%a0\n"     // IOCS _OSNS232C
+        "jsr     %%a0@\n"
+        "tst.l   %%d0\n"
+        "beq     1b\n"
+
+        // RS-232Cに出力する
+        "move.l  %0,%%d1\n"
+        "move.l  0x400+(0x35*4),%%a0\n"     // IOCS _OUT232C
+        "jsr     %%a0@\n"
+        : : "d"(c) : "%%d0", "%%d1", "%%a0", "memory"
+    );
+}
+
+int b_putc(int c)
+{
+    // 2バイト文字の場合は1バイトずつ出力
+    if (c >= 0x100) {
+        b_putc(c >> 8);
+        return b_putc(c & 0xff);
+    }
+
+    if ((d.cursorx >= 0 && (d.cursorx != *(int16_t *)0x974)) ||
+        (d.cursory >= 0 && (d.cursory != *(int16_t *)0x976))) {
+        // 前回の出力からカーソル位置が変わっていたら改行する
+        out232c('\r');
+        out232c('\n');
+    }
+
+    // 表示可能な文字コードであればRS-232Cにも出力する
+    uint8_t first = *(volatile uint8_t *)0x990;     // シフトJIS 1バイト目
+    if (first < 0x80) {
+        if (c == '\a' || c == '\b' || c == '\t' || c == '\n' || c == '\r' ||
+            c == '\f' || c == '\v' || c == 0x1b ||
+            ((c >= 0x20 && c <= 0xef) && (c != 0x80))) {
+            out232c(c);
+        }
+    } else {
+        if (((first >= 0x81 && first <= 0x9f) || (first >= 0xe0 && first <= 0xef)) &&
+            ((c >= 0x40 && c <= 0xfc) && (c != 0x7f))) {
+            out232c(c);
+        }
+    }
+
+    // オリジナルのIOCS _B_PUTCを呼び出し後、カーソル位置を保存する
+    __asm__ volatile (
+        "move.l  %0,%%d1\n"
+        "jsr     %1@\n"
+        "move.l  %%d0,cursorx\n"
+        : : "d"(c), "a"(d.org_b_putc) : "%%d0", "%%d1", "%%a0", "memory"
+    );
+}
+
+// コンソールのAUX出力の有効・無効を切り替える
+void conout_switch(int enable)
+{
+    if (enable) {
+        d.cursorx = d.cursorx = -1;     // 前回のカーソル位置を無効化
+        *(volatile uint32_t *)(0x400 + 0x20 * 4) = (int)b_putc_asm;
+        *(volatile uint32_t *)(0x400 + 0x21 * 4) = (int)b_print_asm;
+    } else {
+        *(volatile uint32_t *)(0x400 + 0x20 * 4) = d.org_b_putc;
+        *(volatile uint32_t *)(0x400 + 0x21 * 4) = d.org_b_print;
+    }
+}
+
+//----------------------------------------------------------------------------
+// キー入力関連処理
+//----------------------------------------------------------------------------
 
 int b_keyinp(void)
 {
@@ -182,9 +288,9 @@ int b_keyinp(void)
             continue;
         }
 
-        // paste bufferの内容を返す
         uint16_t stat = save_irq();
         if (d.paste_rptr != d.paste_wptr) {
+            // ペーストバッファの内容を返す
             res = *d.paste_rptr;
             if (d.issjis1) {
                 d.issjis1 = false;
@@ -193,10 +299,14 @@ int b_keyinp(void)
                     d.issjis1 = true;
                 }
             }
+
+            // 読み込みポインタを先に進める
             d.paste_rptr++;
             if (d.paste_rptr >= d.paste_buf_end) {
                 d.paste_rptr = d.paste_buf;
             }
+
+            // ペーストバッファが空になったらペーストモード終了
             if (d.paste_rptr == d.paste_wptr && !d.issjis1) {
                 d.ispaste = false;
             }
@@ -211,20 +321,18 @@ int b_keysns(void)
 {
     uint32_t res;
 
+    // オリジナルのIOCS _B_KEYSNSでキーバッファに入力があるかどうかをチェックする
     __asm__ volatile (
         "move.l %1,%%a0\n"
         "jsr %%a0@\n"
         "move.l %%d0,%0\n"
         : "=d"(res) : "a"(d.org_b_keysns) : "%%d0", "%%a0", "memory"
     );
-    if (res) {
+    if (res || !d.ispaste) {
         return res;
     }
 
-    if (!d.ispaste) {
-        return res;
-    }
-
+    // ペーストモードならペーストバッファが空でないかもチェックする
     uint16_t stat = save_irq();
     if (d.paste_rptr != d.paste_wptr) {
         res = 0x10000 | *d.paste_rptr;
@@ -235,28 +343,12 @@ int b_keysns(void)
     return res;
 }
 
+//----------------------------------------------------------------------------
+// キーコード関連処理
+//----------------------------------------------------------------------------
 
-// B_KEYSNS処理
-// org B_KEYSNS
-// 入力がなければpaste bufferから取得
-
-
-// AUXからの入力
-// 漢字ならSKEYSET_ascii
-// paste中でなければkeymatch -> SKEYSET
-// keybufが使用中ならpaste bufferに格納
-//   paste中にESCが来たらpasteを中断して通常入力に復帰
-
-// SKEYSET処理 (keyinp)
-// paste bufferが空でkeybufに空きがあればorg skeysetで格納 (key code)
-// keybufがfull またはpaste中ならasciiコードをpaste bufferに格納
-
-// SKYESET_ascii処理 (paste)
-// keybufに直接コードを格納 (bitmap,シフト状態は替えない)
-// 空きがなければpaste bufferに格納
-
-// IOCS _SKEYSET処理
-static void skeyset(uint16_t scancode)
+// IOCS _SKEYSET呼び出し
+static inline void skeyset(uint16_t scancode)
 {
     __asm__ volatile (
         "move.l     %0,%%d1\n"
@@ -275,13 +367,11 @@ static int sendkey(uint8_t *k)
     // 送出するシーケンスのキーバッファ消費量を調べる
     int count = d.relptr;
     for (uint8_t *p = k; (c = *p) != '\0'; p++) {
-        if (!(c & 0x80)) {
-            count++;
-        }
+        count += (c & 0x80) ? 2 : 1;    // シフト系キーは押す・離すの2回分
     }
 
-    // キーバッファに入りきらなければエラーにする
-    if (60 - *(uint16_t *)0x0812 < count) { // TBD
+    // シーケンスがキーバッファに入りきらなければエラー終了
+    if (64 - *(uint16_t *)0x0812 < count) {
         restore_irq(stat);
         return -1;
     }
@@ -291,21 +381,40 @@ static int sendkey(uint8_t *k)
         skeyset(d.relseq[--d.relptr]);
     }
 
-    while ((c = *k++) != 0) {
-        if (c & 0x80) {         // シフト系キーの処理
-            skeyset(c & 0x7f);      // キーを押す
-            d.relseq[d.relptr++] = c;   // 後で離すキーコードを保存
-        } else {
-            skeyset(c);             // キーを押す
-            skeyset(c | 0x80);      // キーを離す
+    switch (*k) {
+    // 特殊キーコードの処理
+    case KEYCODE_CON:
+        d.isconout = true;   // コンソールAUX出力フラグを立てる
+        conout_switch(true);
+        break;
+    case KEYCODE_COFF:
+        d.isconout = false;  // コンソールAUX出力フラグを下げる
+        conout_switch(false);
+        break;
+    case KEYCODE_CSW:
+        d.isconout = !d.isconout; // コンソールAUX出力フラグを反転
+        conout_switch(d.isconout);
+        break;
+
+    // 通常キーコードの処理
+    default:
+        while ((c = *k++) != 0) {
+            if (c & 0x80) {         // シフト系キーの処理
+                skeyset(c & 0x7f);      // キーを押す
+                d.relseq[d.relptr++] = c;   // 後で離すキーコードを保存
+            } else {
+                skeyset(c);             // キーを押す
+                skeyset(c | 0x80);      // キーを離す
+            }
         }
+        break;
     }
 
     restore_irq(stat);
     return 0;
 }
 
-// 押されているシフト系キーがあれば離す
+// 前回送出したキーコードで押されたままになっているシフト系キーを離す
 static void relkey(void)
 {
     uint16_t stat = save_irq();
@@ -385,7 +494,10 @@ static uint8_t *keymatch(uint8_t *key, int klen, int part, int *len)
     return res;
 }
 
+//----------------------------------------------------------------------------
 // SCC受信割り込み処理
+//----------------------------------------------------------------------------
+
 void auxintr(uint32_t stat)
 {
     d.inintr = true;
@@ -405,8 +517,9 @@ void auxintr(uint32_t stat)
 
             keyseq[keyseqlen++] = c;
             if (c > 0x80 || keyseqlen > sizeof(keyseq)) {
+                // 変換用バッファに入りきらないか、2バイト文字コードの場合はペーストモードに移行
                 relkey();
-                d.ispaste = true;   // ペーストモードに移行
+                d.ispaste = true;
                 d.inintr = false;
                 return;
             }
@@ -415,9 +528,7 @@ void auxintr(uint32_t stat)
             break;
         }
 
-        // 入力文字コードが ESC だったらペーストバッファをクリアしてペーストモード終了 (TBD)
-
-        restore_irq(stat);
+        restore_irq(stat);  // 処理中の多重割り込みを許可
 
         #ifdef DEBUG
         DPRINTF("{%d:", keyseqlen);
@@ -456,7 +567,7 @@ void auxintr(uint32_t stat)
                         // キーバッファに入りきらないのでペーストモードへ
                         stat = save_irq();
                         relkey();
-                        d.ispaste = true;   // ペーストモードに移行
+                        d.ispaste = true;
                         d.inintr = false;
                         return;
                     }
@@ -474,7 +585,7 @@ void auxintr(uint32_t stat)
                 // キーバッファに入りきらないのでペーストモードへ
                 stat = save_irq();
                 relkey();
-                d.ispaste = true;   // ペーストモードに移行
+                d.ispaste = true;
                 d.inintr = false;
                 return;
             }

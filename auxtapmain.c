@@ -40,7 +40,7 @@
 void help(void)
 {
     _dos_print("AUX1からの入力をキー入力として扱います\r\n");
-    _dos_print("Usage: auxtap.x [-r][-s<baud>][-b<paste buffer size>]\r\n");
+    _dos_print("Usage: auxtap.x [-r][-c][-s<baud>][-b<paste buffer size>]\r\n");
     exit(1);
 }
 
@@ -129,11 +129,27 @@ uint8_t *readconfig(uint8_t *map, size_t mapsize)
                 *m++ = c;
             }
         }
-        *m++ = '\0';
         if (!getkey) {      // 1文字も取得できなかった場合
-            cfgerr = true;
+            while (isspace(*p)) {
+                p++;
+            }
+            if (strncmp(p, "&con", 4) == 0) {
+                p += 4;
+                *m++ = KEYCODE_CON;
+            } else if (strncmp(p, "&coff", 5) == 0) {
+                p += 5;
+                *m++ = KEYCODE_COFF;
+            } else if (strncmp(p, "&csw", 4) == 0) {
+                p += 4;
+                *m++ = KEYCODE_CSW;
+            } else {
+                cfgerr = true;
+            }
+        }
+        if (cfgerr) {
             break;
         }
+        *m++ = '\0';
 
         if (m >= me) {      // バッファオーバー
             cfgerr = true;
@@ -157,7 +173,8 @@ int main(int argc, char **argv)
 
     int baudrate = 0;
     int pastebufsize = 65536;
-    int release = 0;
+    bool release = false;
+    bool conon = false;
 
     // コマンドライン引数の解析
 
@@ -170,8 +187,11 @@ int main(int argc, char **argv)
             case 'b':
                 pastebufsize = atoi(&argv[i][2]);
                 break;
+            case 'c':
+                conon = true;
+                break;
             case 'r':
-                release = 1;
+                release = true;
                 break;
             default:
                 help();
@@ -220,6 +240,8 @@ int main(int argc, char **argv)
         *(volatile uint32_t *)(0x400 + 0x00 * 4) = dp->org_b_keyinp;
         *(volatile uint32_t *)(0x400 + 0x01 * 4) = dp->org_b_keysns;
         *(volatile uint32_t *)(0x400 + 0x03 * 4) = dp->org_key_init;
+        *(volatile uint32_t *)(0x400 + 0x20 * 4) = dp->org_b_putc;
+        *(volatile uint32_t *)(0x400 + 0x21 * 4) = dp->org_b_print;
         _dos_mfree((void *)dp->org_start);
         _dos_print("auxtapの常駐を解除しました\r\n");
         exit(0);
@@ -235,11 +257,16 @@ int main(int argc, char **argv)
         d.org_b_keyinp = *(volatile uint32_t *)(0x400 + 0x00 * 4);
         d.org_b_keysns = *(volatile uint32_t *)(0x400 + 0x01 * 4);
         d.org_key_init = *(volatile uint32_t *)(0x400 + 0x03 * 4);
+        d.org_b_putc   = *(volatile uint32_t *)(0x400 + 0x20 * 4);
+        d.org_b_print  = *(volatile uint32_t *)(0x400 + 0x21 * 4);
 
         *(volatile uint32_t *)(0x5c * 4) = (int)auxintr_asm;
         *(volatile uint32_t *)(0x400 + 0x00 * 4) = (int)b_keyinp_asm;
         *(volatile uint32_t *)(0x400 + 0x01 * 4) = (int)b_keysns_asm;
         *(volatile uint32_t *)(0x400 + 0x03 * 4) = (int)key_init_asm;
+        if (conon) {
+            conout_switch(true);
+        }
     }
 
 #ifdef DEBUG
