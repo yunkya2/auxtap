@@ -95,7 +95,7 @@ __asm__(
     "movea.l %pc@(paste_wptr),%a1\n"    // a1 = d.paste_wptr;
     "move.l  0x400+(0x32*4),%a2\n"      // a2 = IOCS _INP232C
     "move.l  0x400+(0x33*4),%a3\n"      // a3 = IOCS _ISNS232C
-    "bra     5f\n"
+    "bra     7f\n"
 
 "2:\n"
     "jsr     %a2@\n"                    // d0 = _iocs_inp232c();
@@ -104,16 +104,26 @@ __asm__(
     "moveq.l #-0x80,%d0\n"              // d0 = (d0 == 0) ? 0x80 : d;
 
 "3:\n"
+    "tst.b   ispaste\n"                 // if (d.ispaste && d0 == 0x1b) {
+    "beq     5f\n"                      //     // ペーストモード中にESCが押されたら
+    "cmp.b   #0x1b,%d0\n"               //     // ペーストモードを終了する
+    "bne     5f\n"
+    "sf      ispaste\n"                 //     d.ispaste = false;
+    "sf      issjis1\n"                 //     d.issjis1 = false;
+    "move.l  paste_wptr,paste_rptr\n"   //     d.paste_rptr = d.paste_wptr;
+    "bra     9f\n"                      //     return;
+                                        // }
+"5:\n"
     "move.b  %d0,%a1@+\n"               // *a1++ = d0;
     "cmpa.l  %pc@(paste_buf_end),%a1\n" // if (a1 >= d.paste_buf_end) {
-    "bcs     4f\n"                      //     a1 = d.paste_buf;
+    "bcs     6f\n"                      //     a1 = d.paste_buf;
     "movea.l %pc@(paste_buf),%a1\n"     // }
-"4:\n"
+"6:\n"
     "cmpa.l  %pc@(paste_rptr),%a1\n"    // if (a1 != d.paste_rptr) {
-    "beq     5f\n"                      //     d.paste_wptr = a1;
+    "beq     7f\n"                      //     d.paste_wptr = a1;
     "move.l  %a1,paste_wptr\n"          // }
 
-"5:\n"
+"7:\n"
     "jsr     %a3@\n"                    // _iocs_isns232c()
     "tst.l   %d0\n"
     "bne     2b\n"
