@@ -38,6 +38,7 @@
 struct data {
     uint32_t org_start;             // 常駐部先頭アドレス
     uint32_t org_auxintr;           // SCC受信割り込み 変更前ベクタ
+    uint32_t org_timintr;           // Timer-C割り込み 変更前ベクタ
 
     uint32_t org_b_keyinp;          // IOCS _B_KEYINP 変更前ベクタ
     uint32_t org_b_keysns;          // IOCS _B_KEYSNS 変更前ベクタ
@@ -58,6 +59,7 @@ struct data {
     uint8_t update;                 // 入力文字列更新フラグ
     uint8_t issjis1;                // SJIS1バイト目フラグ
     uint8_t isconout;               // コンソールAUX出力フラグ
+    uint8_t timcount;               // Timer-C割り込みカウンタ
 
     uint16_t relptr;                // シフトキーバッファ使用サイズ
     uint8_t relseq[RELBUFSIZE];     // シフトキーバッファ
@@ -71,7 +73,9 @@ __asm__(
 "d:\n"
 "org_start:     .space 4\n"
     ".global    org_auxintr\n"
+    ".global    org_timintr\n"
 "org_auxintr:   .space 4\n"
+"org_timintr:   .space 4\n"
 
     ".global    org_b_keyinp\n"
     ".global    org_b_keysns\n"
@@ -103,11 +107,13 @@ __asm__(
     ".global    update\n"
     ".global    issjis1\n"
     ".global    isconout\n"
+    ".global    timcount\n"
 "inintr:        .space 1\n"
 "ispaste:       .space 1\n"
 "update:        .space 1\n"
 "issjis1:       .space 1\n"
 "isconout:      .space 1\n"
+"timcount:      .space 1\n"
     ".even\n"
 
 "relptr:        .space 2\n"

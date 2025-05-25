@@ -143,6 +143,16 @@ __asm__(
     "movem.l %sp@+,%d0-%d2/%a0-%a3\n"
     "rte\n"
 
+// Timer-C割り込み処理
+
+    ".global timintr_asm\n"
+"timintr_asm:\n"
+    "movem.l %d0-%d2/%a0-%a2,%sp@-\n"
+    "bsr     timintr\n"
+    "movem.l %sp@+,%d0-%d2/%a0-%a2\n"
+    "move.l  %pc@(org_timintr),%sp@-\n"
+    "rts\n"
+
 // キー入力関連IOCS処理
 
     ".global b_keyinp_asm\n"
@@ -417,6 +427,7 @@ static int sendkey(uint8_t *k)
                 skeyset(c | 0x80);      // キーを離す
             }
         }
+        d.timcount = 2;  // シフト系キーを離すまでの時間を設定
         break;
     }
 
@@ -431,7 +442,21 @@ static void relkey(void)
     while (d.relptr > 0) {
         skeyset(d.relseq[--d.relptr]);
     }
+    d.timcount = 0;  // シフト系キーを離すまでの時間をリセット
     restore_irq(stat);
+}
+
+// Timer-C割り込み処理
+void timintr(void)
+{
+    uint16_t status = save_irq();
+    if (d.timcount > 0) {
+        d.timcount--;
+        if (d.timcount == 0) {
+            relkey();   // シフト系キーを離す
+        }
+    }
+    restore_irq(status);
 }
 
 // 入力文字列からキーコード列を探す

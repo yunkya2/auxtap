@@ -40,6 +40,7 @@
 
 extern struct data d;
 extern void auxintr_asm();
+extern void timintr_asm();
 extern void b_keyinp_asm();
 extern void b_keysns_asm();
 extern void key_init_asm();

@@ -237,6 +237,7 @@ int main(int argc, char **argv)
 
         struct data *dp = (struct data *)*(uint32_t *)(org_auxintr - 8);
         *(volatile uint32_t *)(0x5c * 4) = dp->org_auxintr;
+        *(volatile uint32_t *)(0x45 * 4) = dp->org_timintr;
         *(volatile uint32_t *)(0x400 + 0x00 * 4) = dp->org_b_keyinp;
         *(volatile uint32_t *)(0x400 + 0x01 * 4) = dp->org_b_keysns;
         *(volatile uint32_t *)(0x400 + 0x03 * 4) = dp->org_key_init;
@@ -254,6 +255,7 @@ int main(int argc, char **argv)
         extern uint32_t _MCB;
         d.org_start = _MCB + 0x10;
         d.org_auxintr = org_auxintr;
+        d.org_timintr = *(volatile uint32_t *)(0x45 * 4);
         d.org_b_keyinp = *(volatile uint32_t *)(0x400 + 0x00 * 4);
         d.org_b_keysns = *(volatile uint32_t *)(0x400 + 0x01 * 4);
         d.org_key_init = *(volatile uint32_t *)(0x400 + 0x03 * 4);
@@ -261,6 +263,7 @@ int main(int argc, char **argv)
         d.org_b_print  = *(volatile uint32_t *)(0x400 + 0x21 * 4);
 
         *(volatile uint32_t *)(0x5c * 4) = (int)auxintr_asm;
+        *(volatile uint32_t *)(0x45 * 4) = (int)timintr_asm;
         *(volatile uint32_t *)(0x400 + 0x00 * 4) = (int)b_keyinp_asm;
         *(volatile uint32_t *)(0x400 + 0x01 * 4) = (int)b_keysns_asm;
         *(volatile uint32_t *)(0x400 + 0x03 * 4) = (int)key_init_asm;
