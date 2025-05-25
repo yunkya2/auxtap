@@ -18,6 +18,11 @@
 # 0d:^~     1d:CR     2d:V      3d:→     4d:3      5d:CAPS
 # 0e:\|     1e:A      2e:B      3e:↓     4e:ENTER  5e:INS
 # 0f:BS     1f:S      2f:N      3f:CLR    4f:0      5f:ひらがな
+#
+# (特殊コード)
+# &con  : コンソールへの文字表示をシリアルにも出力するようにします
+# &coff : コンソールへの文字表示のシリアルへの出力を停止します
+# &csw  : コンソールへの文字表示のシリアルへ出力するかどうかを切り替えます
 
 # input     keycode
 
@@ -43,12 +48,12 @@
 \x1b[20~    6b          # F9
 \x1b[21~    6c          # F10
 \x1b[23~    71+3c       # F11 -> CTRL+↑
-\x1b[24~    71+3e       # F12 -> CTRL+↓
+\x1b[24~    &csw        # F12 -> AUX出力切り替え
 
-\x1b[25~    &con        # SHIFT+F3
-\x1b[26~    &coff       # SHIFT+F4
-\x1b[28~    &csw        # SHIFT+F5
-#\x1b[29~    xx          # SHIFT+F6
+\x1b[25~    71+3c       # SHIFT+F3 -> CTRL+↑
+\x1b[26~    71+3e       # SHIFT+F4 -> CTRL+↓
+\x1b[28~    &con        # SHIFT+F5 -> AUX出力ON
+\x1b[29~    &coff       # SHIFT+F6 -> AUX出力OFF
 #\x1b[31~    xx          # SHIFT+F7
 #\x1b[32~    xx          # SHIFT+F8
 #\x1b[33~    xx          # SHIFT+F9
@@ -58,7 +63,7 @@
 \x1b[Z      71+55       # SHIFT+TAB -> CTRL+XF1
 \x1b        01          # ESC
 
-\x00        01 35       # CTRL+@ -> ESC+SPACE
+\x00        01 35       # CTRL+SPACE -> ESC+SPACE
 \x01        71+1e       # CTRL+A
 \x02        71+2e       # CTRL+B
 \x03        71+2c       # CTRL+C
