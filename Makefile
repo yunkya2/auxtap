@@ -47,6 +47,10 @@ $(TARGET).x: auxtap.o auxtapdata.o auxtapmain.o
 	$(AS) $(ASFLAGS) -c $<
 
 clean:
-	-rm -f *.o *.x*
+	-rm -f *.o *.x* README.txt
 
-.PHONY: all clean
+release: all
+	./md2txtconv.py README.md
+	zip auxtap-$(GIT_REPO_VERSION).zip README.txt auxtap.x auxtap.cnf
+
+.PHONY: all clean release
